@@ -1,4 +1,12 @@
+#![allow(dead_code)]
+
 use std::arch::naked_asm;
+#[cfg(target_arch = "x86_64")]
+#[cfg(target_os = "windows")]
+
+const STACK_SIZE: usize = 1024 * 1024 * 2; // 2 MB stack size
+const MAX_THREADS: usize = 4; // Maximum number of coroutines
+static mut RUNTIME: usize = 0; // Global runtime pointer
 
 struct Runtime {
     coroutines: Vec<Coroutine>,
@@ -6,6 +14,32 @@ struct Runtime {
 }
 
 impl Runtime {
+    fn new() -> Self {
+        let base_coroutine = Coroutine {
+            id: 0,
+            stack: vec![0; STACK_SIZE],
+            state: CoroutineState::Running,
+            ctx: Context::default(),
+        };
+
+        let mut coroutines = vec![base_coroutine];
+        let mut available_coroutines = (1..MAX_THREADS)
+            .map(|id| Coroutine::new(id))
+            .collect::<Vec<_>>();
+        coroutines.append(&mut available_coroutines);
+
+        Runtime {
+            coroutines,
+            current: 0,
+        }
+    }
+
+    pub fn init(&self) {
+        unsafe {
+            RUNTIME = &raw const self as usize;
+        }
+    }
+
     #[cfg(target_os = "windows")]
     fn spawn<F>(&mut self, f: fn()) {
         let available = self
@@ -41,6 +75,7 @@ enum CoroutineState {
 #[cfg(target_os = "windows")]
 #[cfg(target_arch = "x86_64")]
 #[repr(C)]
+#[derive(Default, Debug)]
 struct Context {
     xmm6: [u64; 2],
     xmm7: [u64; 2],
@@ -70,6 +105,17 @@ struct Coroutine {
     stack: Vec<u8>,
     state: CoroutineState,
     ctx: Context,
+}
+
+impl Coroutine {
+    fn new(id: usize) -> Self {
+        Coroutine {
+            id,
+            stack: vec![0; STACK_SIZE],
+            state: CoroutineState::Available,
+            ctx: Context::default(),
+        }
+    }
 }
 
 /***
