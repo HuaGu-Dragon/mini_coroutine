@@ -5,6 +5,33 @@ struct Runtime {
     current: usize,
 }
 
+impl Runtime {
+    #[cfg(target_os = "windows")]
+    fn spawn<F>(&mut self, f: fn()) {
+        let available = self
+            .coroutines
+            .iter_mut()
+            .find(|c| c.state == CoroutineState::Available)
+            .expect("No available coroutine found");
+
+        let size = available.stack.len();
+
+        unsafe {
+            let s_ptr = available.stack.as_mut_ptr().offset(size as isize);
+            // Align the stack pointer to 16 bytes
+            // This is necessary for Windows x86_64 calling conventions
+            let s_ptr = (s_ptr as usize & !0xF) as *mut u8;
+            std::ptr::write(s_ptr.offset(-16) as *mut u64, f as u64);
+            available.ctx.rsp = s_ptr.offset(-16) as u64;
+            available.ctx.stack_start = s_ptr as u64;
+            available.ctx.stack_end = available.stack.as_ptr() as u64;
+        }
+
+        available.state = CoroutineState::Ready;
+    }
+}
+
+#[derive(PartialEq, Eq, Debug)]
 enum CoroutineState {
     Available,
     Ready,
