@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::arch::naked_asm;
+use std::arch::{asm, naked_asm};
 #[cfg(target_arch = "x86_64")]
 #[cfg(target_os = "windows")]
 
@@ -40,8 +40,42 @@ impl Runtime {
         }
     }
 
+    pub fn t_yield(&mut self) -> bool {
+        let mut pos = self.current;
+
+        while self.coroutines[pos].state != CoroutineState::Ready {
+            pos = (pos + 1) % self.coroutines.len();
+            if pos == self.current {
+                return false;
+            }
+        }
+
+        if self.coroutines[self.current].state != CoroutineState::Available {
+            self.coroutines[self.current].state = CoroutineState::Ready;
+        }
+
+        self.coroutines[pos].state = CoroutineState::Running;
+        let old_pos = self.current;
+        self.current = pos;
+
+        unsafe {
+            let old = &raw mut self.coroutines[old_pos].ctx;
+            let next = &raw const self.coroutines[pos].ctx;
+
+            if cfg!(target_os = "windows") {
+                asm!("call swap_ctx", in("rcx") old, in("rdx") next, clobber_abi("system"));
+            } else {
+                // For other platforms, we can use a different context switch mechanism
+                // This is a placeholder for non-Windows implementations
+                unimplemented!("Context switching not implemented for this platform");
+            }
+        }
+
+        self.coroutines.len() > 0
+    }
+
     #[cfg(target_os = "windows")]
-    fn spawn<F>(&mut self, f: fn()) {
+    fn spawn(&mut self, f: fn()) {
         let available = self
             .coroutines
             .iter_mut()
@@ -118,6 +152,13 @@ impl Coroutine {
     }
 }
 
+pub fn yield_thread() {
+    unsafe {
+        let rt_ptr = RUNTIME as *mut Runtime;
+        (*rt_ptr).t_yield();
+    };
+}
+
 /***
  * This function is used to swap the context of the current coroutine with the next one.
  * It is marked as naked to avoid prologue/epilogue code generation by the compiler
@@ -180,4 +221,16 @@ unsafe extern "C" fn swap_ctx() {
 
 fn main() {
     println!("Hello, world!");
+    let mut runtime = Runtime::new();
+    runtime.init();
+    runtime.spawn(|| {
+        println!("Coroutine 1 started");
+        // Coroutine logic here
+        println!("Coroutine 1 finished");
+    });
+    runtime.spawn(|| {
+        println!("Coroutine 2 started");
+        // Coroutine logic here
+        println!("Coroutine 2 finished");
+    });
 }
