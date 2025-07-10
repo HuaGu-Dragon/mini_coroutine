@@ -1,8 +1,4 @@
-#![allow(dead_code)]
-
 use std::arch::{asm, naked_asm};
-#[cfg(target_arch = "x86_64")]
-#[cfg(target_os = "windows")]
 
 const STACK_SIZE: usize = 1024 * 1024 * 2; // 2 MB stack size
 const MAX_THREADS: usize = 4; // Maximum number of coroutines
@@ -146,6 +142,7 @@ struct Context {
     stack_end: u64,
 }
 
+#[allow(dead_code)]
 struct Coroutine {
     id: usize,
     stack: Vec<u8>,
@@ -259,8 +256,10 @@ fn main() {
     let mut runtime = Runtime::new();
     runtime.init();
     runtime.spawn(|| {
+        let a: u8 = 42;
         println!("Coroutine 1 started");
         yield_thread();
+        println!("{:p}", &a as *const u8);
         println!("Coroutine 1 finished");
     });
     runtime.spawn(|| {
@@ -268,5 +267,8 @@ fn main() {
         yield_thread();
         println!("Coroutine 2 finished");
     });
+    println!("{:p}", guard as *const ());
+    println!("{:p}", skip as *const ());
+    println!("{:p}", swap_ctx as *const ());
     runtime.run();
 }
