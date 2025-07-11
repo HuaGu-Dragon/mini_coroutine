@@ -39,6 +39,7 @@ impl Runtime {
         std::process::exit(0);
     }
 
+    #[inline(never)]
     pub fn t_yield(&mut self) -> bool {
         let mut pos = self.current;
 
@@ -64,9 +65,7 @@ impl Runtime {
             if cfg!(target_os = "windows") {
                 asm!("call swap_ctx", in("rcx") old, in("rdx") next, clobber_abi("system"));
             } else {
-                // For other platforms, we can use a different context switch mechanism
-                // This is a placeholder for non-Windows implementations
-                unimplemented!("Context switching not implemented for this platform");
+                asm!("call swap_ctx", in("rdi") old, in("rsi") next, clobber_abi("C"));
             }
         }
 
@@ -106,6 +105,27 @@ impl Runtime {
 
         available.state = CoroutineState::Ready;
     }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn spawn(f: fn()) {
+        let runtime = unsafe { &mut *(RUNTIME as *mut Runtime) };
+        let available = runtime
+            .coroutines
+            .iter_mut()
+            .find(|c| c.state == CoroutineState::Available)
+            .expect("no available coroutine.");
+
+        let size = available.stack.len();
+        unsafe {
+            let s_ptr = available.stack.as_mut_ptr().offset(size as isize);
+            let s_ptr = (s_ptr as usize & !15) as *mut u8;
+            std::ptr::write(s_ptr.offset(-16) as *mut u64, guard as u64);
+            std::ptr::write(s_ptr.offset(-24) as *mut u64, skip as u64);
+            std::ptr::write(s_ptr.offset(-32) as *mut u64, f as u64);
+            available.ctx.rsp = s_ptr.offset(-32) as u64;
+        }
+        available.state = State::Ready;
+    }
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -141,6 +161,20 @@ struct Context {
     rsi: u64,
     stack_start: u64,
     stack_end: u64,
+}
+
+#[cfg(not(target_os = "windows"))]
+#[derive(Debug, Default)]
+#[repr(C)]
+struct Context {
+    rsp: u64,
+    r15: u64,
+    r14: u64,
+    r13: u64,
+    r12: u64,
+    rbx: u64,
+    rbp: u64,
+    thread_ptr: u64,
 }
 
 #[allow(dead_code)]
@@ -249,6 +283,30 @@ unsafe extern "C" fn swap_ctx() {
 
         ret
     "#
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+#[naked]
+#[no_mangle]
+#[cfg_attr(target_os = "macos", export_name = "\x01swap_ctx")]
+unsafe extern "C" fn swap_ctx() {
+    naked_asm!(
+        "mov [rdi + 0x00], rsp",
+        "mov [rdi + 0x08], r15",
+        "mov [rdi + 0x10], r14",
+        "mov [rdi + 0x18], r13",
+        "mov [rdi + 0x20], r12",
+        "mov [rdi + 0x28], rbx",
+        "mov [rdi + 0x30], rbp",
+        "mov rsp, [rsi + 0x00]",
+        "mov r15, [rsi + 0x08]",
+        "mov r14, [rsi + 0x10]",
+        "mov r13, [rsi + 0x18]",
+        "mov r12, [rsi + 0x20]",
+        "mov rbx, [rsi + 0x28]",
+        "mov rbp, [rsi + 0x30]",
+        "ret"
     );
 }
 
