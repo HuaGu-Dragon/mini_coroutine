@@ -81,8 +81,9 @@ impl Runtime {
     }
 
     #[cfg(target_os = "windows")]
-    fn spawn(&mut self, f: fn()) {
-        let available = self
+    fn spawn(f: fn()) {
+        let runtime = unsafe { &mut *(RUNTIME as *mut Runtime) };
+        let available = runtime
             .coroutines
             .iter_mut()
             .find(|c| c.state == CoroutineState::Available)
@@ -255,17 +256,27 @@ fn main() {
     println!("Hello, world!");
     let mut runtime = Runtime::new();
     runtime.init();
-    runtime.spawn(|| {
+    Runtime::spawn(|| {
         let a: u8 = 42;
         println!("Coroutine 1 started");
         yield_thread();
+        Runtime::spawn(|| {
+            println!("Coroutine 1.1 started");
+            yield_thread();
+            println!("Coroutine 1.1 finished");
+        });
         println!("{:p}", &a as *const u8);
         println!("Coroutine 1 finished");
     });
-    runtime.spawn(|| {
+    Runtime::spawn(|| {
         println!("Coroutine 2 started");
         yield_thread();
         println!("Coroutine 2 finished");
+        Runtime::spawn(|| {
+            println!("Coroutine 2.1 started");
+            yield_thread();
+            println!("Coroutine 2.1 finished");
+        });
     });
     println!("{:p}", guard as *const ());
     println!("{:p}", skip as *const ());
