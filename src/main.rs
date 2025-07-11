@@ -124,7 +124,7 @@ impl Runtime {
             std::ptr::write(s_ptr.offset(-32) as *mut u64, f as u64);
             available.ctx.rsp = s_ptr.offset(-32) as u64;
         }
-        available.state = State::Ready;
+        available.state = CoroutineState::Ready;
     }
 }
 
@@ -287,8 +287,8 @@ unsafe extern "C" fn swap_ctx() {
 }
 
 #[cfg(not(target_os = "windows"))]
-#[naked]
-#[no_mangle]
+#[unsafe(naked)]
+#[unsafe(no_mangle)]
 #[cfg_attr(target_os = "macos", export_name = "\x01swap_ctx")]
 unsafe extern "C" fn swap_ctx() {
     naked_asm!(
